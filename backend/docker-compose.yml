@@ -1,0 +1,132 @@
+version: '3.8'
+
+services:
+  # PostgreSQL with PostGIS
+  postgres:
+    image: postgis/postgis:15-3.3
+    container_name: zonavip-postgres
+    environment:
+      POSTGRES_DB: zonavip
+      POSTGRES_USER: zonavip
+      POSTGRES_PASSWORD: zonavip123
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - zonavip-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zonavip"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: zonavip-redis
+    command: redis-server --appendonly yes --requirepass redis123
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - zonavip-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # OpenSearch (ElasticSearch alternative)
+  opensearch:
+    image: opensearchproject/opensearch:2.11.0
+    container_name: zonavip-opensearch
+    environment:
+      - cluster.name=zonavip-cluster
+      - node.name=opensearch-node1
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=Admin@123
+      - plugins.security.disabled=false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    networks:
+      - zonavip-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # OpenSearch Dashboards
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.11.0
+    container_name: zonavip-dashboards
+    ports:
+      - "5601:5601"
+    environment:
+      OPENSEARCH_HOSTS: '["https://opensearch:9200"]'
+      OPENSEARCH_USERNAME: admin
+      OPENSEARCH_PASSWORD: Admin@123
+    networks:
+      - zonavip-network
+    depends_on:
+      - opensearch
+
+  # PgAdmin (PostgreSQL Administration)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: zonavip-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@zonavip.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - zonavip-network
+    depends_on:
+      - postgres
+
+  # Redis Commander (Redis Administration)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: zonavip-redis-commander
+    environment:
+      - REDIS_HOSTS=local:redis:6379:0:redis123
+    ports:
+      - "8081:8081"
+    networks:
+      - zonavip-network
+    depends_on:
+      - redis
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  opensearch_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+networks:
+  zonavip-network:
+    driver: bridge
